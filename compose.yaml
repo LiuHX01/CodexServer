@@ -1,0 +1,18 @@
+services:
+  codex-server:
+    build: .
+    init: true
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      CODEX_HOME: /data/codex
+      WORKSPACE_ROOT: /data/workspaces
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - codex-data:/data
+    stop_grace_period: 45s
+
+volumes:
+  codex-data:
