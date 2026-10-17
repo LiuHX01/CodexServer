@@ -1,8 +1,10 @@
-.venv/
-.env
-__pycache__/
-.pytest_cache/
-.ruff_cache/
-*.pyc
-data/
-.coverage
+# Service-local runtime state
+**/.venv/
+**/.env
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.ruff_cache/
+**/data/
+**/.coverage
+**/node_modules/
