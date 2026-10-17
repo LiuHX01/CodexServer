@@ -33,7 +33,11 @@ class ContainerCloudConnection:
             try:
                 first = await asyncio.wait_for(socket.recv(), self.config.connect_timeout_seconds)
                 ready = parse_ready(decode(first))
-                logger.info("container cloud worker ready; expires_at=%s", ready.expires_at)
+                logger.info(
+                    "event=container_cloud_ready hostname=%s expires_at=%s",
+                    self.identity.get("hostname", "unknown"),
+                    ready.expires_at,
+                )
                 yield self
             finally:
                 self.socket = None

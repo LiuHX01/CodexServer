@@ -197,7 +197,8 @@ if [[ -z "$WORKER_PRESET_DIR" ]]; then
 fi
 if [[ "$WORKER_LOCAL" == 0 ]]; then
   worker_local_config="${RELAY_CONTAINER_CLOUD_LOCAL_MODE:-$(env_file_value RELAY_CONTAINER_CLOUD_LOCAL_MODE)}"
-  if [[ "${worker_local_config,,}" == "true" || "$worker_local_config" == "1" ]]; then
+  worker_local_config="$(printf '%s' "$worker_local_config" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$worker_local_config" == "true" || "$worker_local_config" == "1" ]]; then
     WORKER_LOCAL=1
   fi
 fi
@@ -308,7 +309,8 @@ fi
   uv run uvicorn app.main:app \
     --host "$EXECUTION_HOST" \
     --port "$EXECUTION_PORT" \
-    --workers 1
+    --workers 1 \
+    --no-access-log
   status=$?
   printf '%s\n' "$status" > "$execution_status_file"
   exit "$status"

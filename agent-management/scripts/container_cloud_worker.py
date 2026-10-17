@@ -5,12 +5,12 @@ Usage: uv run python -m scripts.container_cloud_worker [--token TOKEN] [--endpoi
 
 import argparse
 import asyncio
-import logging
 
 from pydantic import SecretStr
 
 from app.config import Settings
 from app.integrations.container_cloud import ContainerCloudWorker, ContainerCloudWorkerConfig
+from app.logging_config import configure_logging
 
 
 def parser():
@@ -71,7 +71,5 @@ async def main():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
+    configure_logging()
     asyncio.run(main())

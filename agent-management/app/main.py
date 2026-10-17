@@ -1,4 +1,3 @@
-import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -12,6 +11,7 @@ from .adapters.codex import AdapterRegistry
 from .api import router
 from .config import Settings
 from .database import Database
+from .logging_config import configure_logging
 from .schemas import Login
 from .security import Security, principal
 from .workers.runtime import Worker
@@ -108,6 +108,5 @@ def create_app(settings=None, database=None, adapters=None):
     return app
 
 
-logging.basicConfig(level=logging.INFO)
-logging.getLogger("httpx").setLevel(logging.WARNING)
+configure_logging()
 app = create_app()

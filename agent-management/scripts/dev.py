@@ -39,6 +39,7 @@ def main():
             args.host,
             "--port",
             str(args.port),
+            "--no-access-log",
         ],
     )
 

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from uuid import uuid4
@@ -114,6 +115,7 @@ class Manager:
 
     async def _execute(self, live: LiveRun):
         run = live.run
+        started = time.monotonic()
         try:
             async with self.slots:
                 if run.cancel_requested:
@@ -121,6 +123,12 @@ class Manager:
                     return
                 run.status = "running"
                 await self._save(live, "run.running", run.model_dump(mode="json"))
+                logger.info(
+                    "event=run_started run_id=%s thread_id=%s model=%s",
+                    run.id,
+                    run.thread_id,
+                    run.options.model if run.options else "default",
+                )
                 # Enforce server-side sandbox settings even on a persisted thread.
                 await self.backend.resume(run.thread_id, run.options)
                 if run.cancel_requested:
@@ -166,6 +174,13 @@ class Manager:
                 self.live.pop(run.id, None)
                 self.admitted.discard(run.id)
                 self.owners.pop(run.thread_id, None)
+                logger.info(
+                    "event=run_finished run_id=%s thread_id=%s status=%s duration_ms=%d",
+                    run.id,
+                    run.thread_id,
+                    run.status,
+                    round((time.monotonic() - started) * 1000),
+                )
 
     async def _consume(self, live: LiveRun):
         run = live.run

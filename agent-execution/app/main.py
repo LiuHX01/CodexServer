@@ -20,6 +20,7 @@ from .api import router
 from .backend import CodexBackend
 from .config import Settings
 from .idempotency import IdempotencyMiddleware
+from .logging_config import configure_logging
 from .manager import Manager
 from .store import Store
 
@@ -131,4 +132,5 @@ def create_app(settings: Settings | None = None, backend: CodexBackend | None = 
     return app
 
 
+configure_logging()
 app = create_app()

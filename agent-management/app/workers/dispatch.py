@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import timedelta
 
 from sqlalchemy import exists, select, update
@@ -77,11 +78,20 @@ class Dispatcher:
         if command_id is None:
             return False
         adapter = None
+        started = time.monotonic()
         try:
             async with self.database.transaction() as db:
                 command = await db.get(Command, command_id)
                 session = await db.get(Session, command.session_id)
                 agent = await db.get(Agent, session.agent_id)
+                logger.info(
+                    "event=command_dispatch_started command_id=%s kind=%s "
+                    "session_id=%s agent_id=%s",
+                    command.id,
+                    command.kind,
+                    session.id,
+                    agent.id,
+                )
             if not agent.instance_id:
                 await inspect_agent(self.database, self.adapters, agent.id)
             async with self.database.transaction() as db:
@@ -112,10 +122,27 @@ class Dispatcher:
             adapter = self.adapters.open(agent)
             result = await adapter.mutate(path, body, command.id)
             await self.accept(command_id, result)
+            logger.info(
+                "event=command_accepted command_id=%s duration_ms=%d",
+                command_id,
+                round((time.monotonic() - started) * 1000),
+            )
         except ProviderError as exc:
             await self.fail(command_id, "rejected", exc.message)
+            logger.warning(
+                "event=command_rejected command_id=%s duration_ms=%d reason=%s",
+                command_id,
+                round((time.monotonic() - started) * 1000),
+                exc.message,
+            )
         except DeliveryUnknown as exc:
             await self.fail(command_id, "unknown", str(exc))
+            logger.warning(
+                "event=command_unknown command_id=%s duration_ms=%d reason=%s",
+                command_id,
+                round((time.monotonic() - started) * 1000),
+                exc,
+            )
         except Exception:
             logger.exception("Command delivery requires reconciliation: %s", command_id)
             await self.fail(command_id, "unknown", "操作结果待核对，请勿重复提交")
@@ -205,6 +232,12 @@ class Dispatcher:
             if command.kind == "create_session":
                 session = await db.get(Session, command.session_id)
                 session.state, session.error = status, reason
+        logger.warning(
+            "event=command_failed command_id=%s status=%s reason=%s",
+            command_id,
+            status,
+            reason,
+        )
 
     async def reconcile(self, command_id):
         async with self.database.transaction() as db:

@@ -5,7 +5,7 @@ from contextlib import suppress
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
-from openai_codex import CodexConfig, InvalidRequestError
+from openai_codex import CodexConfig, InvalidRequestError, TransportClosedError
 from openai_codex.generated.v2_all import ThreadTurnsListResponse
 from openai_codex.models import UnknownNotification
 
@@ -45,14 +45,21 @@ class CodexBackend:
         self.on_control: Callable[[dict], Awaitable[None]] | None = None
         self.on_disconnect: Callable[[], Awaitable[None]] | None = None
         self.drafts: set[str] = set()
+        self.closing = False
 
     async def start(self):
+        self.closing = False
         self.settings.codex_home.mkdir(parents=True, exist_ok=True)
         self.settings.workspace_root.mkdir(parents=True, exist_ok=True)
         try:
             await self.client.start()
             await self.client.initialize()
             self.healthy = True
+            logger.info(
+                "event=codex_runtime_ready model=%s auth_mode=%s",
+                self.settings.codex_model,
+                self.settings.codex_auth_mode,
+            )
             self.drain = asyncio.create_task(self._drain_global_events())
             self.controls = asyncio.create_task(self._drain_control_events())
         except BaseException:
@@ -67,8 +74,13 @@ class CodexBackend:
                     await self.on_notification(
                         notification.method, self.notification_data(notification)
                     )
-        except Exception:
-            await self._disconnected()
+        except asyncio.CancelledError:
+            raise
+        except TransportClosedError:
+            if not self.closing:
+                await self._disconnected("codex transport closed")
+        except Exception as exc:
+            await self._disconnected(str(exc))
 
     async def _drain_control_events(self):
         try:
@@ -76,13 +88,18 @@ class CodexBackend:
                 message = await self.client.control_events.get()
                 if self.on_control:
                     await self.on_control(message)
-        except Exception:
-            await self._disconnected()
+        except asyncio.CancelledError:
+            raise
+        except TransportClosedError:
+            if not self.closing:
+                await self._disconnected("codex control transport closed")
+        except Exception as exc:
+            await self._disconnected(str(exc))
 
-    async def _disconnected(self):
-        if self.healthy:
+    async def _disconnected(self, reason: str):
+        if self.healthy and not self.closing:
             self.healthy = False
-            logger.exception("Codex event receiver stopped")
+            logger.error("event=codex_runtime_disconnected reason=%s", reason)
             if self.on_disconnect:
                 await self.on_disconnect()
 
@@ -92,6 +109,7 @@ class CodexBackend:
         return encode(payload.params if isinstance(payload, UnknownNotification) else payload)
 
     async def close(self):
+        self.closing = True
         self.healthy = False
         tasks = [task for task in (self.drain, self.controls) if task]
         for task in tasks:

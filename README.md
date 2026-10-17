@@ -19,6 +19,24 @@ agent-execution
   HTTP + SSE、Codex SDK、Agent Runtime
 ```
 
+## 能力边界
+
+### 管理系统（agent-management）
+
+- 管理执行端登记、健康状态、能力和容量。
+- 管理会话、运行任务、命令队列、重试和状态回执。
+- 提供权限校验、幂等处理、人工交互、操作审计和浏览器工作台。
+- 接收容器云 Worker 消息，并将允许的动作转成管理命令。
+- 负责调度和记录，不直接运行 Codex 任务。
+
+### 执行器（agent-execution）
+
+- 通过 Codex SDK 创建和管理会话。
+- 执行对话、代码操作和运行任务，并返回运行状态与最终结果。
+- 提供 HTTP API、SSE 实时事件、历史查询和人工交互接口。
+- 使用配置的项目目录作为工作区，并复用 ChatGPT 登录或 CC Switch 配置。
+- 负责实际调用 Codex；不负责容器云接入、权限策略和管理审计。
+
 ## 本机启动
 
 根目录提供统一的环境准备和双服务启动脚本。首次使用执行：
@@ -66,6 +84,18 @@ uv run python -m app.codex_cli login --device-auth
 ```
 
 管理工作台默认地址为 <http://127.0.0.1:8080>。默认启动会自动判断数据库：项目默认数据库已可连接时直接复用，否则启动项目自己的本地 PostgreSQL；如果配置的是其他数据库地址，则不会尝试启动本地数据库。根目录 `.env` 同时配置了 Worker endpoint 和 pairing token 时，Worker 也会自动启动。`--skip-postgres`、`--worker` 及其他参数只用于临时覆盖或排障；完整参数可通过 `--help` 查看。两个服务和 Worker 仍保留各自目录中的独立启动方式，详见对应 README。
+
+## 日志
+
+三个进程使用统一的终端格式：
+
+```text
+12:34:56 INFO     app.integrations.container_cloud.worker | event=task_received task_id=... operation=start_session
+12:34:57 INFO     app.workers.dispatch | event=command_accepted command_id=... duration_ms=412
+12:35:02 INFO     app.manager | event=run_finished run_id=... status=completed duration_ms=4870
+```
+
+交互式终端会按级别显示颜色；输出重定向到文件时自动使用纯文本。设置 `NO_COLOR=1` 可以强制关闭颜色。日志只记录任务和运行标识、状态、耗时及错误，不记录 token、完整 prompt 或代码内容；完整业务审计仍保存在管理端的事件记录中。
 
 ## 验证
 

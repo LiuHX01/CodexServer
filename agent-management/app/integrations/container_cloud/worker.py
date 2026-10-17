@@ -2,10 +2,11 @@ import asyncio
 import logging
 import signal
 import socket
+import time
 from collections.abc import Callable
 from typing import Any
 
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, InvalidURI
 
 from .actions import ManagementActionRegistry
 from .client import ContainerCloudConnection
@@ -14,6 +15,18 @@ from .observe import follow_command
 from .protocol import ProtocolError, parse_task
 
 logger = logging.getLogger(__name__)
+
+
+def connection_error_summary(exc: Exception) -> str:
+    """Keep reconnect-loop logs useful without dumping library internals or URLs."""
+    if isinstance(exc, InvalidURI):
+        return "WebSocket 地址无效或被重定向到非 ws/wss 地址，通常是登录态或 endpoint 配置问题"
+    if isinstance(exc, ConnectionClosed):
+        return f"WebSocket 已关闭 code={exc.code} reason={exc.reason or '-'}"
+    detail = str(exc).splitlines()[0].strip()
+    if len(detail) > 240:
+        detail = f"{detail[:237]}..."
+    return f"{type(exc).__name__}: {detail or '无详细信息'}"
 
 
 class ContainerCloudWorker:
@@ -55,10 +68,13 @@ class ContainerCloudWorker:
                 if exc.code in {4001, 4003, 4009}:
                     logger.error("container cloud worker pairing ended with code %s", exc.code)
                     self.stop()
-            except Exception:
+            except Exception as exc:
                 if self.stop_event.is_set():
                     break
-                logger.exception("container cloud worker connection failed")
+                logger.error(
+                    "event=container_cloud_connection_failed reason=%s",
+                    connection_error_summary(exc),
+                )
             self.active_connection = None
             if self.stop_event.is_set():
                 break
@@ -80,6 +96,10 @@ class ContainerCloudWorker:
         if message.get("type") != "task":
             logger.debug("ignoring non-task container cloud message: %s", message.get("type"))
             return
+        started = time.monotonic()
+        task_id = message.get("taskId", "unknown")
+        operation = message.get("operation", "unknown")
+        logger.info("event=task_received task_id=%s operation=%s", task_id, operation)
         try:
             task = parse_task(message)
             result = await self.actions.execute(task)
@@ -97,6 +117,12 @@ class ContainerCloudWorker:
             await connection.error(task_id, nonce, "management_error", str(exc))
             return
         await connection.result(task.task_id, task.nonce, result)
+        logger.info(
+            "event=task_result_sent task_id=%s operation=%s duration_ms=%d",
+            task.task_id,
+            task.operation,
+            round((time.monotonic() - started) * 1000),
+        )
         command = result.get("data") if isinstance(result, dict) else None
         if (
             task.operation
