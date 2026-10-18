@@ -1,4 +1,6 @@
-from contextlib import asynccontextmanager
+import asyncio
+import logging
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 import httpx
@@ -11,12 +13,38 @@ from .adapters.codex import AdapterRegistry
 from .api import router
 from .config import Settings
 from .database import Database
+from .integrations.container_cloud import (
+    ContainerCloudWorker,
+    ContainerCloudWorkerConfig,
+)
+from .integrations.container_cloud.worker import run_worker
 from .logging_config import configure_logging
 from .schemas import Login
 from .security import Security, principal
 from .workers.runtime import Worker
 
 STATIC = Path(__file__).parent / "static"
+logger = logging.getLogger(__name__)
+
+
+def container_cloud_config(settings):
+    if not settings.container_cloud_endpoint or not settings.container_cloud_token:
+        return None
+    management_token = settings.container_cloud_management_token or settings.admin_token
+    return ContainerCloudWorkerConfig(
+        endpoint=settings.container_cloud_endpoint,
+        token=settings.container_cloud_token,
+        management_token=management_token,
+        management_url=settings.container_cloud_management_url,
+        reconnect_initial_seconds=settings.container_cloud_reconnect_initial_seconds,
+        reconnect_max_seconds=settings.container_cloud_reconnect_max_seconds,
+        connect_timeout_seconds=settings.container_cloud_connect_timeout_seconds,
+        management_timeout_seconds=settings.container_cloud_management_timeout_seconds,
+        local_mode=settings.container_cloud_local_mode,
+        preset_dir=settings.container_cloud_preset_dir,
+        result_poll_seconds=settings.container_cloud_result_poll_seconds,
+        result_timeout_seconds=settings.container_cloud_result_timeout_seconds,
+    )
 
 
 def create_app(settings=None, database=None, adapters=None):
@@ -29,11 +57,33 @@ def create_app(settings=None, database=None, adapters=None):
         worker = Worker(db, registry, config)
         app.state.settings, app.state.db = config, db
         app.state.security, app.state.adapters, app.state.worker = security, registry, worker
+        cloud_worker = None
+        cloud_task = None
         if config.embedded_worker:
             await worker.start()
+        if config.container_cloud_endpoint or config.container_cloud_token:
+            cloud_config = container_cloud_config(config)
+            if cloud_config is None:
+                logger.error("event=container_cloud_disabled reason=endpoint_and_token_required")
+            else:
+                cloud_worker = ContainerCloudWorker(cloud_config)
+                cloud_task = asyncio.create_task(
+                    run_worker(cloud_worker), name="container-cloud-worker"
+                )
+                logger.info("event=container_cloud_worker_started")
         try:
             yield
         finally:
+            if cloud_worker is not None:
+                cloud_worker.stop()
+            if cloud_task is not None:
+                try:
+                    with suppress(asyncio.CancelledError):
+                        await asyncio.wait_for(cloud_task, timeout=5)
+                except TimeoutError:
+                    cloud_task.cancel()
+                    await asyncio.gather(cloud_task, return_exceptions=True)
+                    logger.warning("event=container_cloud_worker_shutdown_timeout")
             await worker.close()
             await db.close()
 

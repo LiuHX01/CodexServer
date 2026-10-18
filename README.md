@@ -12,7 +12,7 @@
           │
           ▼
 agent-management
-  API、PostgreSQL、Worker、管理工作台
+  API、PostgreSQL、调度/观察 Worker、容器云监听、管理工作台
           │
           ▼
 agent-execution
@@ -56,38 +56,36 @@ cd agent-execution
 uv run python -m app.codex_cli login --device-auth
 ```
 
-然后从仓库根目录启动两个服务：
+然后分别启动两个服务：
 
 ```bash
-./scripts/start_all.sh
+./scripts/start_management.sh
+./scripts/start_execution.sh
 ```
 
-其中执行端默认监听 `127.0.0.1:8000`，管理端默认监听 `127.0.0.1:8080`。管理端启动时会复用 `scripts.dev`，自动处理 PostgreSQL、执行迁移，并登记同级目录中的执行端。按 `Ctrl+C` 会同时停止两个服务。
+执行端默认监听 `127.0.0.1:8000`，管理端默认监听 `127.0.0.1:8080`。管理端启动时会自动处理 PostgreSQL、执行迁移，并在配置了容器云 endpoint 和 pairing token 时启动内嵌监听，同时登记同级目录中的执行端。两边日志分别在各自终端查看。需要一次启动两个服务时，可使用兼容脚本 `./scripts/start_all.sh`。
 
 常用选项：
 
 ```bash
-./scripts/start_all.sh --no-register-codex
-./scripts/start_all.sh --execution-port 8001 --management-port 8081
+./scripts/start_management.sh --register-codex
+./scripts/start_management.sh --port 8081
+./scripts/start_execution.sh --port 8001
 
-# Worker 参数写入根目录 .env 后，启动脚本会自动启动 Worker：
+# 容器云监听参数写入根目录 .env 后，管理端启动时会自动连接：
 # RELAY_CONTAINER_CLOUD_ENDPOINT=...
 # RELAY_CONTAINER_CLOUD_TOKEN=...
 # RELAY_CONTAINER_CLOUD_LOCAL_MODE=true  # 仅 ws:// 本地测试时需要
 
-# 也可以临时覆盖配置，同时启动本地后端和容器云 Worker
-./scripts/start_all.sh \
-  --worker-local \
-  --worker-token two-pc-test \
-  --worker-endpoint ws://192.168.1.20:8787 \
-  --worker-preset-dir /absolute/path/to/project
+# 如需指定管理端对容器云使用的回调地址：
+./scripts/start_management.sh --management-url http://192.168.1.20:8080
 ```
 
-管理工作台默认地址为 <http://127.0.0.1:8080>。默认启动会自动判断数据库：项目默认数据库已可连接时直接复用，否则启动项目自己的本地 PostgreSQL；如果配置的是其他数据库地址，则不会尝试启动本地数据库。根目录 `.env` 同时配置了 Worker endpoint 和 pairing token 时，Worker 也会自动启动。`--skip-postgres`、`--worker` 及其他参数只用于临时覆盖或排障；完整参数可通过 `--help` 查看。两个服务和 Worker 仍保留各自目录中的独立启动方式，详见对应 README。
+管理工作台默认地址为 <http://127.0.0.1:8080>。默认启动会自动判断数据库：项目默认数据库已可连接时直接复用，否则启动项目自己的本地 PostgreSQL；如果配置的是其他数据库地址，则不会尝试启动本地数据库。容器云监听属于管理端，不再需要额外启动第三个 Worker 进程。完整参数可通过 `--help` 查看。
 
 ## 日志
 
-三个进程使用统一的终端格式：
+两个服务使用统一的终端格式：
 
 ```text
 12:34:56 INFO     app.integrations.container_cloud.worker | event=task_received task_id=... operation=start_session
@@ -107,4 +105,4 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-`agent-management` 还提供容器云消息接入 Worker，详见 [`agent-management/README.md`](agent-management/README.md#容器云消息-worker)。
+管理端内置容器云消息接入，详见 [`agent-management/README.md`](agent-management/README.md#容器云消息接入)。

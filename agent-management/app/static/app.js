@@ -17,6 +17,8 @@ const state = {
   members: [],
   history: [],
   search: "",
+  logSearch: "",
+  logType: "",
   agentFilter: "",
   archived: false,
   drafts: new Map(),
@@ -559,11 +561,19 @@ document.addEventListener("input", (event) => {
     state.search = event.target.value;
     render();
   }
+  if (event.target.id === "log-search") {
+    state.logSearch = event.target.value;
+    render();
+  }
 });
 document.addEventListener("change", (event) => {
   const id = event.target.id;
   if (id === "agent-filter") {
     state.agentFilter = event.target.value;
+    render();
+  }
+  if (id === "log-type") {
+    state.logType = event.target.value;
     render();
   }
   const map = {

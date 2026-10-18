@@ -16,7 +16,7 @@ uv sync --locked
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-终端二：启动中枢、内嵌 worker 和页面。
+终端二：启动中枢、内嵌调度 Worker、容器云监听和页面。
 
 ```bash
 cd /path/to/CodexServer/agent-management
@@ -128,7 +128,7 @@ uv run alembic check
 
 ## 部署与扩展边界
 
-API 与 worker 可独立运行：API 设置 `RELAY_EMBEDDED_WORKER=false`，另起 `uv run python -m app.worker`。PostgreSQL 行锁、命令租约和会话观察租约用于多个 worker 争抢；当前本机验证为单 worker，未做多节点压力测试。前端随 API 提供，默认仅本机 8080。
+管理端进程内包含数据库调度/观察 Worker 和容器云 WebSocket 监听，不需要另起容器云 Worker 进程。前端随 API 提供，默认仅本机 8080。数据库调度 Worker 仍可通过 `RELAY_EMBEDDED_WORKER=false` 拆出运行，但这不是默认启动方式。
 
 新增 Provider 实现 `app/adapters/base.py` 协议并登记工厂和输入 schema；业务入口可单独加 router/service，不需要改变原生运行镜像。初版没有自动调度、机器供应、SSO、业务任务编排和通知系统。也不提供容器级运行隔离或跨执行端工作目录迁移；实际执行隔离由执行端部署负责。
 
@@ -136,27 +136,24 @@ API 与 worker 可独立运行：API 设置 `RELAY_EMBEDDED_WORKER=false`，另�
 
 数据库与 `.env` 中的 `RELAY_SECRET_KEY` 必须配套备份；更换密钥会使已有执行端凭证无法解密。正式部署使用认证数据库、HTTPS，并设置 `RELAY_COOKIE_SECURE=true`。本机开发数据库不自动随 API 停止，停止命令：`uv run python -m scripts.postgres stop`。
 
-## 容器云消息 Worker
+## 容器云消息接入
 
-`agent-management` 提供一个独立的容器云消息接入 Worker。它通过 WebSocket 接收容器云任务，再调用本地管理 API；管理动作仍经过现有的权限、幂等 Command、Dispatcher 和审计链路。
+`agent-management` 内置容器云消息接入。管理端启动后，它通过 WebSocket 接收容器云任务，再调用本地管理 API；管理动作仍经过现有的权限、幂等 Command、Dispatcher 和审计链路。
 
-启动 Worker：
+在管理端 `.env` 配置 endpoint 和 pairing token 后启动管理端：
 
 ```bash
 cd agent-management
 uv sync --locked
-uv run python -m scripts.container_cloud_worker \
-  --token "$CONTAINER_CLOUD_WORKER_TOKEN" \
-  --endpoint "wss://example.test/api/v1/relay-demo/worker"
+uv run python -m scripts.dev
 ```
 
-本地 WebSocket 测试可以使用：
+底层 `scripts.container_cloud_worker` 入口仍保留用于兼容性和专项调试；日常启动不要再额外运行它。管理端配置示例：
 
 ```bash
-uv run python -m scripts.container_cloud_worker \
-  --local \
-  --token "$CONTAINER_CLOUD_WORKER_TOKEN" \
-  --endpoint "ws://127.0.0.1:8765/worker"
+RELAY_CONTAINER_CLOUD_ENDPOINT=wss://example.test/api/v1/relay-demo/worker
+RELAY_CONTAINER_CLOUD_TOKEN=container-cloud-pairing-token
+RELAY_CONTAINER_CLOUD_MANAGEMENT_URL=http://127.0.0.1:8080
 ```
 
 容器云配对 token 和 management API token 是两种凭证。统一启动时在仓库根目录 `.env` 中配置：
@@ -206,16 +203,15 @@ RELAY_CONTAINER_CLOUD_LOCAL_MODE=false
 不会被当前容器转发到 Kim。失败回传不带原文，容器将忽略并在约 15 秒后提示超时。
 本功能验证 Worker 本地动作，不调用 Codex。
 
-显式指定 Worker 所在电脑上的现有测试目录：
+显式指定管理端所在电脑上的现有测试目录：
 
-```bash
-uv run python -m scripts.container_cloud_worker \
-  --token "$CONTAINER_CLOUD_WORKER_TOKEN" \
-  --endpoint "wss://merchant-changeatlas-prt.test.gifshow.com/api/v1/relay-demo/worker" \
-  --preset-dir /absolute/path/to/test-project
+```dotenv
+RELAY_CONTAINER_CLOUD_ENDPOINT=wss://merchant-changeatlas-prt.test.gifshow.com/api/v1/relay-demo/worker
+RELAY_CONTAINER_CLOUD_TOKEN=container-cloud-pairing-token
+RELAY_CONTAINER_CLOUD_PRESET_DIR=/absolute/path/to/test-project
 ```
 
-也可在管理端 `.env` 设置 `RELAY_CONTAINER_CLOUD_PRESET_DIR`。未设置目录时禁用预设任务；
+管理端启动后会使用这些配置。未设置目录时禁用预设任务；
 不自动继承执行端 DEFAULT_CWD。
 
 在 Kim 群真正 @机器人后发送：
@@ -232,9 +228,9 @@ uv run python -m scripts.container_cloud_worker \
 
 ## 两台电脑测试操作回执和最终回答
 
-电脑 A 运行本项目的管理端、执行端以及 Python 容器云 Worker。电脑 B 运行
+电脑 A 运行本项目的管理端和执行端，管理端内嵌容器云监听。电脑 B 运行
 ChangeAtlas 的 `scripts/relay-demo-simulator.mjs`（需使用支持 `task_update` 的新版），
-监听局域网地址；A 的 Worker 主动连接 B，管理 API 仍使用 A 本机的 8080。
+监听局域网地址；A 的管理端主动连接 B，管理 API 仍使用 A 本机的 8080。
 
 B 的示例启动命令（先安装 `ws@8.22.0`）：
 
@@ -242,12 +238,13 @@ B 的示例启动命令（先安装 `ws@8.22.0`）：
 RELAY_SIM_HOST=0.0.0.0 RELAY_SIM_TOKEN=two-pc-test node relay-demo-simulator.mjs 8787
 ```
 
-A 在本目录执行（替换 B 的地址）：
+A 在本目录配置 `.env` 后启动管理端（替换 B 的地址）：
 
 ```bash
-uv run python -m scripts.container_cloud_worker --local \
-  --token two-pc-test --endpoint ws://192.168.1.20:8787 \
-  --preset-dir /absolute/path/to/project
+RELAY_CONTAINER_CLOUD_ENDPOINT=ws://192.168.1.20:8787
+RELAY_CONTAINER_CLOUD_TOKEN=two-pc-test
+RELAY_CONTAINER_CLOUD_LOCAL_MODE=true
+uv run python -m scripts.dev
 ```
 
 B 输入 `/echo hello` 测试回传，再在 A 的管理页面创建会话，复制管理会话 ID。

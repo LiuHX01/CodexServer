@@ -9,6 +9,23 @@ const agentName = (state, id) =>
 const sessionName = (state, id) =>
   state.sessions.find((s) => s.id === id)?.name || "会话";
 
+const json = (value) => e(JSON.stringify(value ?? {}, null, 2));
+const eventLabel = (type) =>
+  ({
+    "command.queued": "命令入队",
+    "command.dispatching": "Worker 领取",
+    "command.sending": "投递执行端",
+    "command.accepted": "执行端已回执",
+    "command.rejected": "执行端拒绝",
+    "command.unknown": "回执待核对",
+    "observer.connected": "观察连接建立",
+    "observer.error": "观察连接异常",
+    "observer.disconnected": "观察连接关闭",
+    "run.queued": "运行排队",
+    "run.running": "运行中",
+    "run.finished": "运行结束",
+  })[type] || type;
+
 function sessionRow(state, session) {
   return `<a class="row" href="#sessions/${session.id}"><div class="row-icon">▤</div><div class="row-content"><div class="row-title">${e(session.name)}</div><div class="row-meta">${e(agentName(state, session.agent_id))}<span>·</span>${time(session.updated_at)}</div></div>${badge(session.state)}<span class="muted">↗</span></a>`;
 }
@@ -28,6 +45,7 @@ export function overview(state) {
       button("new-session", "＋ 新建会话", "", "primary"),
     ) +
     `<div class="stats-grid">${metrics.map(([title, value, icon, footer]) => `<div class="stat-card"><div class="stat-label">${title}<span>${icon}</span></div><div class="stat-value">${value ?? 0}</div><div class="stat-footer">${footer}</div></div>`).join("")}</div>` +
+    `<section class="diagnostic-strip"><div><span class="diagnostic-kicker">链路诊断</span><strong>${stats.online_agents || 0}/${stats.agents || 0} 个执行端在线</strong><p>${stats.unknown_commands || 0} 个回执待核对 · ${state.logs.filter((item) => item.type === "observer.error" || item.type === "command.rejected").length} 个最近连接/投递错误</p></div><a class="button small" href="#logs">查看实时链路</a></section>` +
     `<div class="overview-grid"><section class="panel"><div class="panel-heading"><h2>最近会话</h2><a href="#sessions" class="text-link">查看全部 ↗</a></div>${
       state.sessions.length
         ? state.sessions
@@ -58,6 +76,7 @@ export function overview(state) {
     (stats.unknown_commands
       ? `<div class="alert" style="margin-top:20px">有 ${stats.unknown_commands} 项操作结果待核对。系统不会自动重发这些操作。 <a href="#commands" class="text-link">查看操作记录 →</a></div>`
       : "") +
+    `<section class="panel recent-events"><div class="panel-heading"><h2>最近链路事件</h2><a href="#logs" class="text-link">打开完整日志 ↗</a></div>${state.logs.length ? state.logs.slice(-6).toReversed().map((event) => `<div class="event-line"><span class="event-time">${time(event.created_at)}</span><span class="event-label">${e(eventLabel(event.type))}</span><span class="event-session">${e(sessionName(state, event.session_id))}</span><code>#${event.id}</code></div>`).join("") : `<div class="empty compact"><h3>暂无链路事件</h3><p>连接检查、命令投递和运行状态会在这里出现。</p></div>`}</section>` +
     `<div class="getting-started"><div><h3>从输入到人工交互，走一遍完整链路</h3><p>内置测试指令，体验流式输出、执行中追加、Plan 提问和命令审批。</p></div><a class="button" href="#guide">打开测试指南 →</a></div><p class="footer-note">执行状态来自远端观察。连接中断时保留最后事实，并明确显示待核对。</p>`
   );
 }
@@ -82,7 +101,7 @@ export function agents(state) {
               idempotency: "操作幂等",
             };
             const admin = state.me.role === "admin";
-            return `<article class="agent-card"><div class="agent-card-top"><div class="agent-icon">↗</div><div><h3>${e(a.name)}</h3><div class="agent-url">${e(a.base_url)}</div></div>${badge(a.connection)}</div><div class="agent-metrics"><div><small>正在运行</small><strong>${a.remote_status.running ?? "—"}</strong></div><div><small>排队</small><strong>${a.remote_status.queued ?? "—"}</strong></div><div><small>并行容量</small><strong>${a.remote_status.max_concurrent_runs ?? "—"}</strong></div></div><div class="capabilities">${Object.entries(
+            return `<article class="agent-card"><div class="agent-card-top"><div class="agent-icon">↗</div><div><h3>${e(a.name)}</h3><div class="agent-url">${e(a.base_url)}</div></div>${badge(a.connection)}</div><div class="agent-facts"><span>实例 <code>${e(a.instance_id || "未上报")}</code></span><span>观察 <code>${e(time(a.observed_at))}</code></span></div><div class="agent-metrics"><div><small>正在运行</small><strong>${a.remote_status.running ?? "—"}</strong></div><div><small>排队</small><strong>${a.remote_status.queued ?? "—"}</strong></div><div><small>并行容量</small><strong>${a.remote_status.max_concurrent_runs ?? "—"}</strong></div></div><div class="capabilities">${Object.entries(
               names,
             )
               .filter(([key]) => capabilities[key])
@@ -126,12 +145,13 @@ export function sessions(state) {
 
 export function commandTable(state, commands) {
   return commands.length
-    ? `<div class="panel table-wrap"><table class="table"><thead><tr><th>操作</th><th>会话</th><th>状态</th><th>操作者</th><th>提交时间</th><th></th></tr></thead><tbody>${commands.map((c) => `<tr><td><span class="title">${e(kind(c.kind))}</span><div class="sub">${e(c.id.slice(0, 10))}</div></td><td><a href="#sessions/${c.session_id}">${e(sessionName(state, c.session_id))}</a></td><td>${badge(c.status)}${c.error ? `<div class="command-error">${e(c.error)}</div>` : ""}</td><td>${e(c.actor)}</td><td class="muted">${time(c.created_at)}</td><td>${c.status === "unknown" ? button("reconcile", "核对", `data-id="${c.id}"`, "small") : ""}</td></tr>`).join("")}</tbody></table></div>`
+    ? `<div class="panel table-wrap"><table class="table"><thead><tr><th>操作</th><th>会话</th><th>状态</th><th>操作者</th><th>提交时间</th><th></th></tr></thead><tbody>${commands.map((c) => `<tr><td><span class="title">${e(kind(c.kind))}</span><div class="sub">${e(c.id.slice(0, 10))}</div></td><td><a href="#sessions/${c.session_id}">${e(sessionName(state, c.session_id))}</a></td><td>${badge(c.status)}${c.error ? `<div class="command-error">${e(c.error)}</div>` : ""}</td><td>${e(c.actor)}</td><td class="muted">${time(c.created_at)}</td><td><details class="inline-details"><summary>详情</summary><div class="command-detail"><div><b>请求</b><pre>${json(c.payload)}</pre></div><div><b>回执</b><pre>${json(c.result || (c.error ? { error: c.error } : null))}</pre></div></div></details>${c.status === "unknown" ? button("reconcile", "核对", `data-id="${c.id}"`, "small") : ""}</td></tr>`).join("")}</tbody></table></div>`
     : empty("暂无操作记录", "新建会话、发送消息和控制操作都会在这里留下回执。");
 }
 export function commands(state) {
   return (
-    heading("操作记录", "已受理表示操作成功投递，不代表 Agent 已完成工作。") +
+    heading("操作记录", "沿着命令 ID 查看入队、投递、回执和最终结果。") +
+    `<div class="diagnostic-strip compact-strip"><div><span class="diagnostic-kicker">调试提示</span><strong>已受理 ≠ 已完成</strong><p>unknown 表示平台无法确认远端结果，禁止自动重发，请先核对原始回执。</p></div></div>` +
     commandTable(state, state.commands)
   );
 }
@@ -159,16 +179,23 @@ function logRow(state, event) {
 }
 
 export function logs(state) {
+  const search = state.logSearch.toLowerCase();
+  const types = [...new Set(state.logs.map((event) => event.type))].sort();
+  const filtered = state.logs.filter((event) => {
+    const haystack = `${event.type} ${event.actor || ""} ${JSON.stringify(event.data || {})}`.toLowerCase();
+    return (!state.logType || event.type === state.logType) &&
+      (!search || haystack.includes(search));
+  });
   return (
     heading(
       "实时日志",
       "查看中枢受理、Worker 投递、执行端回执和事件观察的完整链路。",
       `<span class="connection connected"><i></i>自动跟随实时事件</span>`,
     ) +
-    `<div class="log-toolbar"><span class="count">最近 ${state.logs.length} 条，最多保留 500 条</span><button class="button small" data-action="refresh">↻ 刷新</button></div>` +
+    `<div class="log-toolbar"><input id="log-search" data-preserve placeholder="搜索事件、操作者或字段…" value="${e(state.logSearch)}"><select id="log-type" data-preserve><option value="">全部事件类型</option>${types.map((type) => `<option value="${e(type)}" ${state.logType === type ? "selected" : ""}>${e(type)}</option>`).join("")}</select><span class="count">显示 ${filtered.length}/${state.logs.length} 条 · 最多保留 500 条</span><button class="button small" data-action="refresh">↻ 刷新</button></div>` +
     `<section class="panel log-panel" data-scroll-key="logs">${
-      state.logs.length
-        ? state.logs
+      filtered.length
+        ? filtered
             .toReversed()
             .map((event) => logRow(state, event))
             .join("")

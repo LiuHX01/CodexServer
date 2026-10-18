@@ -8,3 +8,6 @@
 **/data/
 **/.coverage
 **/node_modules/
+
+# CodexServer process ids and other local runtime state
+/.runtime/
