@@ -164,12 +164,16 @@ RELAY_CONTAINER_CLOUD_TOKEN=container-cloud-pairing-token
 # 不设置时默认使用 RELAY_ADMIN_TOKEN
 RELAY_CONTAINER_CLOUD_MANAGEMENT_TOKEN=management-api-token
 RELAY_CONTAINER_CLOUD_MANAGEMENT_URL=http://127.0.0.1:8080
+# [qwe] echo prompts are sent to this existing management session
+RELAY_CONTAINER_CLOUD_TARGET_SESSION_ID=session-id
 RELAY_CONTAINER_CLOUD_LOCAL_MODE=false
 ```
 
 当前 Worker 支持的任务操作包括：
 
 - `echo`：兼容原始演示 Worker 的回显操作。
+  当 `text` 以 `[qwe]` 开头时，去掉前缀后的内容会作为 prompt 投递到
+  `RELAY_CONTAINER_CLOUD_TARGET_SESSION_ID` 指定的会话，同时保留原始 `text` 回传。
 - `agent_probe`：检查执行端连接和能力。
 - `agent_patch`：更新执行端配置。
 - `create_session`：创建会话。

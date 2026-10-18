@@ -3,7 +3,16 @@
 import asyncio
 
 
-async def follow_command(client, task, command, publish, *, poll_seconds=1.0, timeout_seconds=1800):
+async def follow_command(
+    client,
+    task,
+    command,
+    publish,
+    *,
+    operation=None,
+    poll_seconds=1.0,
+    timeout_seconds=1800,
+):
     async def read(path):
         response = await client.call(task, "GET", path, idempotent=False)
         return response["data"]
@@ -39,7 +48,7 @@ async def follow_command(client, task, command, publish, *, poll_seconds=1.0, ti
             await asyncio.sleep(poll_seconds)
             receipt = await read(f"/v1/commands/{command['id']}")
 
-        if task.operation != "start_session":
+        if (operation or task.operation) != "start_session":
             await publish(
                 "command_ended",
                 {

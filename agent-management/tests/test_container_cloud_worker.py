@@ -26,6 +26,74 @@ def config():
     )
 
 
+async def test_qwe_echo_dispatches_prompt_to_configured_session():
+    from dataclasses import replace
+
+    registry = ManagementActionRegistry(
+        replace(config(), target_session_id="session-target")
+    )
+    calls = []
+
+    async def fake_call(task, method, path, body=None, *, idempotent=True):
+        calls.append((task.task_id, method, path, body, idempotent))
+        return {
+            "ok": True,
+            "status": 202,
+            "data": {
+                "id": "command-1",
+                "session_id": "session-target",
+                "status": "queued",
+            },
+        }
+
+    registry.client.call = fake_call
+    try:
+        task = parse_task(
+            {
+                "type": "task",
+                "taskId": "qwe-1",
+                "operation": "echo",
+                "text": "[qwe] 请检查当前工作目录",
+            }
+        )
+        result = await registry.execute(task)
+    finally:
+        await registry.close()
+
+    assert result["text"] == "[qwe] 请检查当前工作目录"
+    assert result["follow_operation"] == "start_session"
+    assert calls == [
+        (
+            "qwe-1",
+            "POST",
+            "/v1/sessions/session-target/messages",
+            {"prompt": "请检查当前工作目录"},
+            True,
+        )
+    ]
+
+
+async def test_qwe_echo_requires_target_session():
+    registry = ManagementActionRegistry(config())
+    try:
+        task = parse_task(
+            {
+                "type": "task",
+                "taskId": "qwe-2",
+                "operation": "echo",
+                "text": "[qwe] hello",
+            }
+        )
+        try:
+            await registry.execute(task)
+        except ValueError as exc:
+            assert "TARGET_SESSION_ID" in str(exc)
+        else:
+            raise AssertionError("[qwe] should require a target session")
+    finally:
+        await registry.close()
+
+
 def test_ready_protocol_accepts_simulator_numeric_expiry():
     ready = parse_ready(
         {

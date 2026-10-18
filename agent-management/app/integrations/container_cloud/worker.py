@@ -141,7 +141,18 @@ class ContainerCloudWorker:
             key = (task.task_id, task.nonce)
             old = self.followers.get(key)
             if old is None or old.done():
-                follower = asyncio.create_task(self.follow(connection, task, command))
+                follow_operation = result.get("follow_operation")
+                if follow_operation:
+                    follower = asyncio.create_task(
+                        self.follow(
+                            connection,
+                            task,
+                            command,
+                            operation=follow_operation,
+                        )
+                    )
+                else:
+                    follower = asyncio.create_task(self.follow(connection, task, command))
                 self.followers[key] = follower
 
                 def forget(done):
@@ -150,7 +161,7 @@ class ContainerCloudWorker:
 
                 follower.add_done_callback(forget)
 
-    async def follow(self, connection, task, command):
+    async def follow(self, connection, task, command, *, operation=None):
         async def publish(event, data):
             await connection.send(
                 {
@@ -168,6 +179,7 @@ class ContainerCloudWorker:
                 task,
                 command,
                 publish,
+                operation=operation,
                 poll_seconds=self.config.result_poll_seconds,
                 timeout_seconds=self.config.result_timeout_seconds,
             )

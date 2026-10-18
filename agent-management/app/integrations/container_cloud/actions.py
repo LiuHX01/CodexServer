@@ -80,6 +80,22 @@ class ManagementActionRegistry:
         text = task.payload.get("text")
         if not isinstance(text, str) or len(text) > 200:
             raise ValueError("echo.text 必须是长度不超过 200 的字符串")
+        if text.startswith("[qwe]"):
+            prompt = text[len("[qwe]") :].lstrip()
+            if not prompt:
+                raise ValueError("[qwe] 后必须有要发送给 Agent 的内容")
+            if not self.config.target_session_id:
+                raise ValueError(
+                    "[qwe] 任务未配置目标会话，请设置 RELAY_CONTAINER_CLOUD_TARGET_SESSION_ID"
+                )
+            result = await self.client.call(
+                task,
+                "POST",
+                f"/v1/sessions/{self.config.target_session_id}/messages",
+                {"prompt": prompt},
+            )
+            # Keep the original text for ChangeAtlas' strict echo validation.
+            return {**result, "text": text, "follow_operation": "start_session"}
         if text.startswith("test-"):
             return await execute_preset(task, self.config.preset_dir)
         return {"ok": True, "text": text}

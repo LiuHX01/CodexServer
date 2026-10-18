@@ -17,6 +17,7 @@ class ContainerCloudWorkerConfig:
     result_poll_seconds: float = 1.0
     result_timeout_seconds: float = 1800.0
     preset_dir: str | None = None
+    target_session_id: str | None = None
 
     def validate(self):
         if self.result_poll_seconds <= 0 or self.result_timeout_seconds <= 0:

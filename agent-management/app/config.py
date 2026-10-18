@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     container_cloud_management_url: str = "http://127.0.0.1:8080"
     container_cloud_local_mode: bool = False
     container_cloud_preset_dir: str | None = None
+    container_cloud_target_session_id: str | None = None
     container_cloud_result_poll_seconds: float = Field(default=1.0, gt=0)
     container_cloud_result_timeout_seconds: float = Field(default=1800.0, gt=0)
     container_cloud_reconnect_initial_seconds: float = Field(default=1.0, ge=0.1)

@@ -30,6 +30,10 @@ def parser():
         "--local", action="store_true", help="Allow ws:// endpoint for local testing"
     )
     result.add_argument("--preset-dir", help="Existing local project directory for test-* probes")
+    result.add_argument(
+        "--target-session-id",
+        help="Session receiving [qwe] echo prompts; defaults to RELAY_CONTAINER_CLOUD_TARGET_SESSION_ID",
+    )
     return result
 
 
@@ -59,6 +63,7 @@ def build_config(args):
         management_timeout_seconds=settings.container_cloud_management_timeout_seconds,
         local_mode=args.local or settings.container_cloud_local_mode,
         preset_dir=args.preset_dir or settings.container_cloud_preset_dir,
+        target_session_id=args.target_session_id or settings.container_cloud_target_session_id,
         result_poll_seconds=settings.container_cloud_result_poll_seconds,
         result_timeout_seconds=settings.container_cloud_result_timeout_seconds,
     )

@@ -48,6 +48,41 @@ async def test_follows_receipt_then_only_matching_run_and_final_response():
     ]
 
 
+async def test_qwe_echo_can_follow_the_started_session_run():
+    client = Client(
+        [
+            receipt("accepted", result={"id": "native-new"}),
+            {"runs": [run("running")]},
+            {"runs": [run(final_response="qwe done")]},
+        ]
+    )
+    updates = []
+
+    async def publish(event, data):
+        updates.append((event, data))
+
+    await follow_command(
+        client,
+        TaskMessage("qwe-task", "n", "echo", {}),
+        receipt(),
+        publish,
+        operation="start_session",
+        poll_seconds=0.001,
+    )
+
+    assert updates[-1] == (
+        "run_finished",
+        {
+            "command_id": "command-1",
+            "session_id": "session-1",
+            "run_id": "run-local",
+            "status": "completed",
+            "final_response": "qwe done",
+            "error": None,
+        },
+    )
+
+
 async def test_unknown_receipt_stops_without_resubmitting():
     client = Client([receipt("unknown", error="receipt missing")])
     updates = []

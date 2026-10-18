@@ -42,6 +42,7 @@ def container_cloud_config(settings):
         management_timeout_seconds=settings.container_cloud_management_timeout_seconds,
         local_mode=settings.container_cloud_local_mode,
         preset_dir=settings.container_cloud_preset_dir,
+        target_session_id=settings.container_cloud_target_session_id,
         result_poll_seconds=settings.container_cloud_result_poll_seconds,
         result_timeout_seconds=settings.container_cloud_result_timeout_seconds,
     )
