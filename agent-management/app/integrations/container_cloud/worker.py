@@ -47,7 +47,7 @@ class ContainerCloudWorker:
         self.followers = {}
 
     def _identity(self) -> dict[str, Any]:
-        return {"hostname": socket.gethostname()}
+        return {"hostname": socket.gethostname(), "localAddressMatchesTarget": True}
 
     async def run(self):
         attempts = 0
